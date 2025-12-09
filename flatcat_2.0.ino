@@ -7,16 +7,16 @@
 // ================================================================
 WebServer server(80);
 Servo myServo_1;
-Servo myServo_2;
+// Servo myServo_2;
 Preferences preferences;
 DNSServer dnsServer;
 WiFiUDP udp;
 
 // --- HARDWARE PINS ---
 int elPin_1 = D8;
-int elPin_2 = D6;
+// int elPin_2 = D6;
 int servoPin_1 = D9;
-int servoPin_2 = D7;
+// int servoPin_2 = D7;
 int factoryResetPin = D0;
 int closedStopPin_1 = D1; // <-- DEFINITION for Closed Sensor
 int openStopPin_1 = D2;   // <-- DEFINITION for Open Sensor
@@ -38,10 +38,10 @@ const int maxBrightness = 64;
 // --- STATE VARIABLES ---
 long serverTransactionID = 1;
 int currentServoAngle_1 = closeAngle;
-int currentServoAngle_2 = closeAngle;
+// int currentServoAngle_2 = closeAngle;
 int coverState_1 = coverClosed;
 int currentDimmerValue_1 = 0;
-int currentDimmerValue_2 = 0;
+// int currentDimmerValue_2 = 0;
 bool isDimmerActive = false;
 int calibratorState_1 = calibratorNotReady;
 bool isClosedStopActive_1 = false; // <-- DEFINITION: Initial state
@@ -66,7 +66,16 @@ const char *ALPACA_DISCOVERY_RESPONSE = "{\"AlpacaPort\": 80}";
 // ================================================================
 void setup() {
   Serial.begin(115200);
+
+  // Wait for Serial to connect (Native USB fix)
+  unsigned long startWait = millis();
+  while (!Serial && (millis() - startWait < 3000)) {
+    delay(10);
+  }
+  delay(1000); // Extra safety
+
   Serial.println("tada");
+
   // --- 1. Factory Reset Check ---
   pinMode(factoryResetPin, INPUT_PULLUP);
   delay(50);
@@ -98,26 +107,27 @@ void setup() {
 
   // --- 3. Initialize Hardware and Sensors ---
   pinMode(elPin_1, OUTPUT);
-  pinMode(elPin_2, OUTPUT);
+  //  pinMode(elPin_2, OUTPUT);
   analogWrite(elPin_1, 0);
-  analogWrite(elPin_2, 0);
+  //  analogWrite(elPin_2, 0);
 
   // PWM and Servo setup
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
+  // ESP32PWM::allocateTimer(0); // Often used by WiFi/System
+  ESP32PWM::allocateTimer(1); // Try Timer 1 only
+  // ESP32PWM::allocateTimer(2);
+  // ESP32PWM::allocateTimer(3);
   myServo_1.attach(servoPin_1);
-  myServo_2.attach(servoPin_2);
+  // myServo_2.attach(servoPin_2);
 
   // Initial servo positions and sensor pin setup
   myServo_1.write(currentServoAngle_1);
-  myServo_2.write(currentServoAngle_2);
-
+  // myServo_2.write(currentServoAngle_2);
+  myServo_1.detach(); // Stop sending signals
   // Initialize Sensor Pins with Internal Pull-Up (A3213 requirement)
+
   pinMode(closedStopPin_1, INPUT_PULLUP);
   pinMode(openStopPin_1, INPUT_PULLUP);
-
+  // TIMSK0=0;
   // --- 4. Load Credentials and Connect WiFi ---
   // Read the saved credentials (read-only)
   preferences.begin("flatcat-wifi", true); // TRUE is correct for reading

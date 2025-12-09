@@ -536,6 +536,15 @@ void handleAlpacaCoverCalibrator(long clientID, long transactionID,
       isMovingToOpen_1 = true;
       coverState_1 = coverMoving;
       myServo_1.write(openAngle);
+
+      // FIX: Force blocking wait to ensure signal generates (Same as Web UI
+      // fix)
+      delay(1000);
+
+      // FIX: Manually set state to OPEN since sensors are bypassed
+      coverState_1 = coverOpen;
+      isMovingToOpen_1 = false;
+
       currentServoAngle_1 = openAngle;
 
       // ASCOM Success Response (200 OK)
@@ -579,6 +588,15 @@ void handleAlpacaCoverCalibrator(long clientID, long transactionID,
       isMovingToClose_1 = true;
       coverState_1 = coverMoving;
       myServo_1.write(closeAngle);
+
+      // FIX: Force blocking wait to ensure signal generates (Same as Web UI
+      // fix)
+      delay(1000);
+
+      // FIX: Manually set state to CLOSED since sensors are bypassed
+      coverState_1 = coverClosed;
+      isMovingToClose_1 = false;
+
       currentServoAngle_1 = closeAngle;
 
       // ASCOM Success Response (200 OK)
