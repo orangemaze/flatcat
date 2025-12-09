@@ -40,3 +40,5 @@ compile_log*.txt
 
 # Mac
 .DS_Store
+
+build/

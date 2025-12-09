@@ -189,6 +189,11 @@ void handleGetAllStatus() {
   // doc["servo2"] = currentServoAngle_2;
   doc["dimmer1"] = currentDimmerValue_1;
   // doc["dimmer2"] = currentDimmerValue_2;
+
+  // DEBUG: Raw Sensor Values (1=HIGH/No Magnet, 0=LOW/Magnet Present)
+  doc["d1_raw"] = digitalRead(closedStopPin_1);
+  doc["d2_raw"] = digitalRead(openStopPin_1);
+  doc["coverState"] = coverState_1; // 1=Closed, 2=Moving, 3=Open
   String json;
   serializeJson(doc, json);
   server.send(200, "application/json", json);

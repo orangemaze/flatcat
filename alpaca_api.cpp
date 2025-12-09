@@ -541,9 +541,7 @@ void handleAlpacaCoverCalibrator(long clientID, long transactionID,
       // fix)
       delay(1000);
 
-      // FIX: Manually set state to OPEN since sensors are bypassed
-      coverState_1 = coverOpen;
-      isMovingToOpen_1 = false;
+      // SENSOR MODE RESTORED: State updates via updateCoverStatus() in loop()
 
       currentServoAngle_1 = openAngle;
 
@@ -593,9 +591,7 @@ void handleAlpacaCoverCalibrator(long clientID, long transactionID,
       // fix)
       delay(1000);
 
-      // FIX: Manually set state to CLOSED since sensors are bypassed
-      coverState_1 = coverClosed;
-      isMovingToClose_1 = false;
+      // SENSOR MODE RESTORED: State updates via updateCoverStatus() in loop()
 
       currentServoAngle_1 = closeAngle;
 

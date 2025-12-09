@@ -180,7 +180,6 @@ void loop() {
   updateCoverStatus(); // <-- NEW CALL
   checkAndStopServo();
   // --- NON-BLOCKING TIME UPDATE ---
-  /*
   if (millis() - lastTimeUpdate > 1000) {
     lastTimeUpdate = millis();
 
@@ -193,6 +192,5 @@ void loop() {
       currentTimeString = timeString;
     }
   }
-  */
   delay(1);
 }

@@ -1,9 +1,0 @@
-{
-  "additionalFiles": "..\\..,..\\..,..\\..,..\\..,..\\..,..\\..,..\\..,..\\..",
-  "compiler.optimization_flags": "-Os",
-  "customBuildProperties": "",
-  "fqbn": "esp32:esp32:XIAO_ESP32C6",
-  "hardwareFolders": "C:\\Users\\orangemaze\\AppData\\Local\\Arduino15\\packages",
-  "otherLibrariesFolders": "C:\\Users\\orangemaze\\Documents\\Arduino\\libraries",
-  "sketchLocation": "C:\\Users\\orangemaze\\Antigravity\\flatcat_2.0"
-}

@@ -70,14 +70,10 @@ int validateDeviceNumber(String uri) {
 }
 
 void updateCoverStatus() {
-  // SENSOR BYPASS MODE:
-  // We rely entirely on the command handlers (Web/Alpaca) to set the state.
-  // This function is disabled to prevent it from resetting the state to "Ready"
-  // just because no physical sensors are triggering.
-
-  /*
-  isClosedStopActive_1 = false;
-  isOpenStopActive_1 = false;
+  // SENSOR MODE ACTIVE:
+  // Reads physical pins D1/D2 to determine state.
+  isClosedStopActive_1 = (digitalRead(closedStopPin_1) == LOW);
+  isOpenStopActive_1 = (digitalRead(openStopPin_1) == LOW);
 
   if (isClosedStopActive_1 && !isOpenStopActive_1) {
     coverState_1 = coverClosed;
@@ -90,7 +86,6 @@ void updateCoverStatus() {
   } else {
     coverState_1 = coverReady;
   }
-  */
 }
 
 void checkAndStopServo() {

@@ -60,33 +60,18 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   <table>
     <tr>
-      <td>
-        <h3 id="title_1">Loading...</h3>
+      <td style="width: 100%;">
+        <h3 id="title_1">Waiting...</h3>
         
         <h2>Lens Cap 1</h2>
         <div class="button-container">
-          <button id="servoToggle_1" class="button" onclick="toggleServo(1, openAngleJS, closeAngleJS)">Loading...</button>
+          <button id="servoToggle_1" class="button" onclick="toggleServo(1, openAngleJS, closeAngleJS)">Waiting...</button>
         </div>
         
         <h2>Flat Panel 1</h2>
         <div class="slider-container">
           <input type="range" min="0" max="64" value="0" class="slider" id="brightnessSlider_1" oninput="handleSlider(1, this.value)">
           <span id="sliderValue_1">0</span>
-        </div>
-      </td>
-      
-      <td>
-        <h3 id="title_2">Loading...</h3>
-        
-        <h2>Lens Cap 2</h2>
-        <div class="button-container">
-          <button id="servoToggle_2" class="button" onclick="toggleServo(2, openAngleJS, closeAngleJS)">Loading...</button>
-        </div>
-        
-        <h2>Flat Panel 2</h2>
-        <div class="slider-container">
-          <input type="range" min="0" max="64" value="0" class="slider" id="brightnessSlider_2" oninput="handleSlider(2, this.value)">
-          <span id="sliderValue_2">0</span>
         </div>
       </td>
     </tr>
@@ -107,49 +92,61 @@ const char index_html[] PROGMEM = R"rawliteral(
   // --- Get UI Elements ---
   const slider_1 = document.getElementById('brightnessSlider_1');
   const output_1 = document.getElementById('sliderValue_1');
-  const slider_2 = document.getElementById('brightnessSlider_2');
-  const output_2 = document.getElementById('sliderValue_2');
   const servoButton_1 = document.getElementById('servoToggle_1');
-  const servoButton_2 = document.getElementById('servoToggle_2');
   const errorLock = document.getElementById('error-lock');
   const title_1 = document.getElementById('title_1');
-  const title_2 = document.getElementById('title_2');
   const clockDisplay = document.getElementById('clock');
 
   // --- Global State Variables ---
   let currentServoState_1 = closeAngleJS; 
-  let currentServoState_2 = closeAngleJS;
   let isDimmerOn = false;
 
   // --- Page Load ---
   window.onload = function() {
-    // Fetch all statuses at once
-    fetch('/getallstatus')
-      .then(response => response.json())
-      .then(data => {
-        currentServoState_1 = data.servo1;
-        updateButtonState(1, currentServoState_1);
-        currentServoState_2 = data.servo2;
-        updateButtonState(2, currentServoState_2);
-        slider_1.value = data.dimmer1;
-        output_1.innerHTML = data.dimmer1;
-        slider_2.value = data.dimmer2;
-        output_2.innerHTML = data.dimmer2;
-        checkDimmerLock();
-      });
+    console.log("DEBUG: Page Loaded. Starting Fetches...");
+
+    updateAllStatus(); // Run once immediately
+    setInterval(updateAllStatus, 2000); // Poll every 2 seconds
+
+    // Start the clock
+    updateClock(); 
+    setInterval(updateClock, 1000); 
       
-    // Fetch settings for titles
+    // Fetch settings for titles (Once is fine)
     fetch('/getsettings')
       .then(response => response.json())
       .then(data => {
         title_1.innerHTML = data.title1;
-        title_2.innerHTML = data.title2;
       });
-      
-    // Start the clock
-    updateClock(); // Call it once immediately
-    setInterval(updateClock, 1000); // Then update every second
   };
+
+  function updateAllStatus() {
+    // Fetch all statuses
+    fetch('/getallstatus')
+      .then(response => {
+        // console.log("DEBUG: /getallstatus response received");
+        return response.json();
+      })
+      .then(data => {
+        // console.log("DEBUG: /getallstatus data:", data);
+        
+        // Use the REAL state (from sensors) to update the UI
+        let realState = data.coverState; // 1=Closed, 3=Open, 4=Unknown
+        updateButtonStateFromSensor(1, realState);
+        
+        // Only update slider if user is NOT dragging it? 
+        // For now, simpler to just update, might cause jitter if active use.
+        // Better: Only update if document.activeElement !== slider_1
+        if (document.activeElement !== slider_1) {
+             slider_1.value = data.dimmer1;
+             output_1.innerHTML = data.dimmer1;
+        }
+        checkDimmerLock();
+      })
+      .catch(err => {
+        console.error("ERROR fetching /getallstatus:", err);
+      });
+  }
   
   // --- Clock Function ---
   function updateClock() {
@@ -163,28 +160,48 @@ const char index_html[] PROGMEM = R"rawliteral(
   // --- Dimmer Functions ---
   function handleSlider(sliderNum, value) {
     if (sliderNum == 1) { output_1.innerHTML = value; }
-    else { output_2.innerHTML = value; }
     checkDimmerLock();
     // Use single-quotes for JS strings
     fetch('/slider' + sliderNum + '?value=' + value);
   }
   
   function checkDimmerLock() {
-    isDimmerOn = (slider_1.value > 0 || slider_2.value > 0);
+    isDimmerOn = (slider_1.value > 0);
     if (isDimmerOn) {
       servoButton_1.classList.add('disabled');
-      servoButton_2.classList.add('disabled');
       errorLock.style.display = 'block';
     } else {
       servoButton_1.classList.remove('disabled');
-      servoButton_2.classList.remove('disabled');
       errorLock.style.display = 'none';
     }
   }
 
   // --- Servo Functions ---
+  
+  // NEW: Update UI based on ASCOM State (1=Closed, 2=Moving, 3=Open)
+  function updateButtonStateFromSensor(servoNum, state) {
+    let button = servoButton_1;
+    if (state == 3) { // OPEN
+      button.innerHTML = 'Close'; // Next Action
+      button.className = 'button btn-red';
+      currentServoState_1 = openAngleJS; // Sync angle variable
+    } else if (state == 1 || state == 4) { // CLOSED or UNKNOWN (4) -> Allow Open
+      button.innerHTML = 'Open'; 
+      button.className = 'button btn-green';
+      currentServoState_1 = closeAngleJS; // Sync angle variable
+    } else {
+      // Moving (2) or Error
+      button.innerHTML = 'Moving...';
+      button.className = 'button disabled';
+    }
+    checkDimmerLock();
+  }
+
+  // Fallback for click events (optimistic update)
   function updateButtonState(servoNum, angle) {
-    let button = (servoNum == 1) ? servoButton_1 : servoButton_2;
+     // ... legacy simple toggle logic if needed, but we mostly rely on sensors now
+     // For immediate click feedback:
+    let button = servoButton_1;
     if (angle == openAngleJS) {
       button.innerHTML = 'Close';
       button.className = 'button btn-red';
@@ -197,7 +214,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   function toggleServo(servoNum) {
     if (isDimmerOn) { return; } // Do nothing
-    let currentState = (servoNum == 1) ? currentServoState_1 : currentServoState_2;
+    let currentState = currentServoState_1;
     let newState = 0;
     let command = '';
     if (currentState == openAngleJS) {
@@ -208,8 +225,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       newState = openAngleJS;
     }
     fetch(command);
-    if (servoNum == 1) { currentServoState_1 = newState; }
-    else { currentServoState_2 = newState; }
+    currentServoState_1 = newState;
     updateButtonState(servoNum, newState);
   }
 </script>
