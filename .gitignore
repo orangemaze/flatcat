@@ -1,0 +1,42 @@
+# Arduino / PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Code-workspace (local user config)
+*.code-workspace
+
+# Log files
+*.log
+build_log*.txt
+compile_log*.txt
+
+# Executables
+*.exe
+*.out
+*.app
+*.bin
+*.elf
+
+# Mac
+.DS_Store
