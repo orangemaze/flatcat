@@ -1,28 +1,67 @@
 // config_utils.cpp
 
-#include "flatcat.h"
+#include "flatcat.h" // Includes all necessary declarations
 
 // ================================================================
 // --- UTILITY FUNCTIONS ---
 // ================================================================
-
+/**
+ * @brief Checks the Hall sensors to determine the cover's absolute state.
+ * * Updates the global coverState_1 based on digital sensor readings.
+ * Uses the INPUT_PULLUP setup, meaning the sensor reads LOW when the magnet is present.
+ */
+/**
+ * @brief Checks if a string contains only digits.
+ */
 bool isNumeric(String str) {
-  for (int i = 0; i < str.length(); i++) {
-    if (!isDigit(str.charAt(i))) {
-      return false;
+    for (int i = 0; i < str.length(); i++) {
+        if (!isDigit(str.charAt(i))) {
+            return false;
+        }
     }
-  }
-  return true;
+    return true;
 }
 
 void setDimmerValue(int brightness) {
-  brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
-  currentDimmerValue_1 = brightness;
-  int newPwmValue = map(currentDimmerValue_1, 0, MAX_BRIGHTNESS, 0, 255);
-  analogWrite(elPin_1, newPwmValue);
-  isDimmerActive = (brightness > 0);
+    // 1. Clamp the brightness value to the valid range (1 to MaxBrightness).
+    brightness = constrain(brightness, 0, maxBrightness);
+    
+    // 2. Update the global state variable
+    currentDimmerValue_1 = brightness; 
+    Serial.println(currentDimmerValue_1);
+    // 3. Map the Alpaca brightness (0-64) to the hardware PWM duty cycle (0-255).
+    int newPwmValue = map(currentDimmerValue_1, 0, maxBrightness, 0, 255);
+    Serial.println(newPwmValue);
+    analogWrite(elPin_1, newPwmValue);
+    
+    // 4. Update the dimmer active flag
+    isDimmerActive = (brightness > 0);
 }
 
+int validateDeviceNumber(String uri) {
+  // Find the position of the device number (which is always after the interface name)
+  int start = uri.indexOf("covercalibrator/");
+  if (start == -1) return -1; // Should not happen if routed correctly
+  
+  start += strlen("covercalibrator/");
+  
+  int end = uri.indexOf('/', start);
+  if (end == -1) end = uri.length(); // Handle cases where device number is the end of the URI
+  
+  String devNumStr = uri.substring(start, end);
+  
+  // Check if the number is valid (e.g., "0")
+  if (devNumStr.equals("0")) {
+    return 0; // Device 0 is valid (CoverCalibrator 1)
+  }
+  
+  // Reject non-numeric or out-of-range device numbers
+  if (!devNumStr.toInt()) return -1; // Catches "A" and other garbage
+  if (devNumStr.toInt() != 0) return -1; // Catches -1, 99999, etc.
+
+  return -1; // Invalid device number
+}
+ 
 void updateCoverStatus() {
   // Read the status of the Hall sensors
   isClosedStopActive_1 = (digitalRead(closedStopPin_1) == LOW);
@@ -30,98 +69,113 @@ void updateCoverStatus() {
 
   // Determine the new cover state
   if (isClosedStopActive_1 && !isOpenStopActive_1) {
+    // Only Closed sensor is active
     coverState_1 = coverClosed;
+    // Serial.println("Cover status: CLOSED (Sensor Confirmed)");
   } else if (isOpenStopActive_1 && !isClosedStopActive_1) {
+    // Only Open sensor is active
     coverState_1 = coverOpen;
+    // Serial.println("Cover status: OPEN (Sensor Confirmed)");
   } else if (!isClosedStopActive_1 && !isOpenStopActive_1) {
-    // If we are not moving, we trust the last known state
-    if (coverState_1 != coverMoving && coverState_1 != coverOpen &&
-        coverState_1 != coverClosed) {
+    // Neither sensor is active. Could be moving or stopped in a mid-position.
+    // We retain the coverClosed/coverOpen state unless the motor is actively commanded to move.
+    // For now, we'll assume it is READY to move, or stopped mid-travel.
+    // We need more complex logic to determine if it is "moving," but for status reporting,
+    // this handles the confirmed states.
+    // If it was previously MOVING, it stays MOVING. If not, it's READY.
+    if (coverState_1 != coverMoving) {
       coverState_1 = coverReady;
     }
   } else {
-    // Both active? Error.
-    coverState_1 = coverReady;
-  }
-
-  // Debug output
-  static long lastDebug = 0;
-  if (millis() - lastDebug > 2000) {
-    lastDebug = millis();
-    Serial.printf("Sensors: Closed=%d Open=%d | State=%d\n",
-                  isClosedStopActive_1, isOpenStopActive_1, coverState_1);
+    // Both sensors active (error state, physically impossible/wiring issue)
+    // Serial.println("CRITICAL ERROR: Both Open and Closed sensors active!");
+    coverState_1 = coverReady; // Set to ready to allow movement if motor is fine
   }
 }
 
 void checkAndStopServo() {
   // --- Stop Logic for Cover 1 ---
-
-  // A. Moving Close
+  
+  // A. Check if the cover was commanded to CLOSE
   if (isMovingToClose_1) {
-    // Check physical sensor or time
-    if (isClosedStopActive_1 ||
-        (millis() - moveStartTime > SIMULATED_MOVEMENT_TIME)) {
-      myServo_1.detach();
-      coverState_1 = coverClosed;
-      isMovingToClose_1 = false;
+    if (isClosedStopActive_1) {
+      myServo_1.detach(); // Power off the servo immediately to stop movement
+      coverState_1 = coverClosed; // Confirm final state
+      isMovingToClose_1 = false;  // Clear the command flag
+      // Serial.println("Cover 1: CLOSED stop sensor hit. Servo detached.");
     }
-  }
-  // B. Moving Open
+  } 
+  // B. Check if the cover was commanded to OPEN
   else if (isMovingToOpen_1) {
-    if (isOpenStopActive_1 ||
-        (millis() - moveStartTime > SIMULATED_MOVEMENT_TIME)) {
-      myServo_1.detach();
-      coverState_1 = coverOpen;
-      isMovingToOpen_1 = false;
+    if (isOpenStopActive_1) {
+      myServo_1.detach(); // Power off the servo immediately to stop movement
+      coverState_1 = coverOpen;   // Confirm final state
+      isMovingToOpen_1 = false;   // Clear the command flag
+      // Serial.println("Cover 1: OPEN stop sensor hit. Servo detached.");
     }
   }
 }
 
 void initializeUniqueID() {
-  preferences.begin("flatcat", true);
-  if (preferences.isKey("device-uuid")) {
-    deviceUniqueID = preferences.getString("device-uuid");
-  } else {
-    preferences.end();
-    preferences.begin("flatcat", false);
+    preferences.begin("flatcat", true); // Read-only access initially
 
-    uint8_t baseMac[6];
-    esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
-    deviceUniqueID = String(baseMac[3], HEX);
-    deviceUniqueID.toUpperCase();
-    deviceUniqueID += String(baseMac[4], HEX);
-    deviceUniqueID.toUpperCase();
-    deviceUniqueID += String(baseMac[5], HEX);
-    deviceUniqueID.toUpperCase();
+    if (preferences.isKey("device-uuid")) {
+        // Load existing ID
+        deviceUniqueID = preferences.getString("device-uuid");
+        // Serial.printf("Loaded Unique ID: %s\n", deviceUniqueID.c_str());
+    } else {
+        // ID does not exist, must generate and save it
+        preferences.end(); // Close read-only access
+        preferences.begin("flatcat", false); // Open read/write access
 
-    while (deviceUniqueID.length() < 10) {
-      deviceUniqueID = "0" + deviceUniqueID;
+        // Generate a simple unique ID from the MAC address (safer than pure random)
+        uint8_t baseMac[6];
+        // esp_efuse_read_mac(baseMac);
+        esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
+        // Format as a hex string (e.g., 40:0C:0D:F1:C0:B5) and remove colons
+        deviceUniqueID = String(baseMac[3], HEX);
+        deviceUniqueID.toUpperCase();
+        deviceUniqueID += String(baseMac[4], HEX);
+        deviceUniqueID.toUpperCase();
+        deviceUniqueID += String(baseMac[5], HEX);
+        deviceUniqueID.toUpperCase();
+
+        // Ensure the ID is a large integer string for better compliance
+        while (deviceUniqueID.length() < 10) {
+            deviceUniqueID = "0" + deviceUniqueID;
+        }
+
+        preferences.putString("device-uuid", deviceUniqueID);
+        preferences.end();
+        // Serial.printf("Generated and Saved Unique ID: %s\n", deviceUniqueID.c_str());
     }
-
-    preferences.putString("device-uuid", deviceUniqueID);
-    preferences.end();
-  }
 }
-
 void updateDimmerLock() {
-  if (coverState_1 == coverOpen || coverState_1 == coverMoving) {
+  
+  if (coverState_1 == coverClosed || coverState_1 == coverMoving) {
+    // If the cover is closed or moving, the dimmer MUST be off.
     isDimmerActive = false;
     analogWrite(elPin_1, 0);
     analogWrite(elPin_2, 0);
-    calibratorState_1 = calibratorNotReady;
+    
+    // Set the Alpaca Calibrator State
+    calibratorState_1 = calibratorNotReady; // Cannot be used right now
   } else {
+    // Allow dimmers to operate if the cover is open or ready.
     isDimmerActive = (currentDimmerValue_1 > 0 || currentDimmerValue_2 > 0);
+    
+    // Set the Alpaca Calibrator State
     if (isDimmerActive) {
-      calibratorState_1 = calibratorReady;
+      calibratorState_1 = calibratorReady; // It's currently running (ON)
     } else {
-      calibratorState_1 = calibratorOff;
+      calibratorState_1 = calibratorReady; // It's currently OFF, but ready to be turned ON
     }
   }
 }
 
-void loadSettings() {
+void loadSettings() {  // keep
   preferences.begin("flatcat", false);
-  currentSettings.hostname = preferences.getString("hostname", "flatcat");
+  currentSettings.hostname = preferences.getString("hostname", "flatcat"); // Set default explicitly
   currentSettings.ip = preferences.getString("ip", "192.168.1.150");
   currentSettings.gateway = preferences.getString("gateway", "192.168.1.1");
   currentSettings.subnet = preferences.getString("subnet", "255.255.255.0");
@@ -130,21 +184,30 @@ void loadSettings() {
   currentSettings.gmtOffset = preferences.getLong("gmtOffset", -18000);
   currentSettings.daylightOffset = preferences.getInt("daylightOffset", 3600);
   preferences.end();
+  // Serial.println("Loaded all settings.");
 }
 
-void startApMode() {
+void startApMode() {  // keep
+  // Serial.println("No saved credentials. Starting Access Point mode...");
   WiFi.softAP(ap_ssid);
   IPAddress apIP = WiFi.softAPIP();
+  // Serial.print("AP IP address: ");
+  // Serial.println(apIP);
+
   dnsServer.start(53, "*", apIP);
-  server.onNotFound(handleNotFound);
+  
+  server.onNotFound(handleNotFound); 
   server.on("/scan", HTTP_GET, handleScan);
   server.on("/savewifi", HTTP_POST, handleSaveWifi);
+  
   server.begin();
+  // Serial.println("AP Mode web server started.");
 }
 
-void startMainServer() {
-  loadSettings();
-
+void startMainServer() { //keep
+  // Serial.println("Wi-Fi connected. Starting main server...");
+  loadSettings();  
+  
   IPAddress local_IP, gateway_IP, subnet_IP;
   local_IP.fromString(currentSettings.ip);
   gateway_IP.fromString(currentSettings.gateway);
@@ -156,34 +219,37 @@ void startMainServer() {
   WiFi.setHostname(currentSettings.hostname.c_str());
 
   if (!WiFi.config(local_IP, gateway_IP, subnet_IP, primaryDNS, secondaryDNS)) {
-    // Fail silently or log
+    // Serial.println("Failed to configure static IP!");
   }
-
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  
+  // Serial.print("IP Address: ");
+  // Serial.println(WiFi.localIP());
 
   if (MDNS.begin(currentSettings.hostname.c_str())) {
+    // Serial.println("mDNS responder started. Hostname: " + currentSettings.hostname);
     MDNS.addService("http", "tcp", 80);
+  } else {
+    // Serial.println("Error starting mDNS!");
   }
 
-  configTime(currentSettings.gmtOffset, currentSettings.daylightOffset,
-             ntpServer);
+
+
+
+  configTime(currentSettings.gmtOffset, currentSettings.daylightOffset, ntpServer);
+  // Serial.println("Started NTP time client.");
+  
+  // --- Start Alpaca Discovery Service (UDP) ---
   startAlpacaDiscovery();
 
+  // --- Main Server Routes (Only essential routes remain for this module) ---
   server.on("/", HTTP_GET, handleRoot);
   server.on("/settings", HTTP_GET, handleSettings);
   server.on("/gettime", HTTP_GET, handleGetTime);
-  server.on("/slider1", HTTP_GET, handleSlider1);
-  server.on("/slider2", HTTP_GET, handleSlider2);
-  server.on("/open1", HTTP_GET, handleOpen1);
-  server.on("/close1", HTTP_GET, handleClose1);
-  server.on("/open2", HTTP_GET, handleOpen2);
-  server.on("/close2", HTTP_GET, handleClose2);
-  server.on("/getstatus", HTTP_GET, handleGetAllStatus);
-  server.on("/getsettings", HTTP_GET, handleGetSettings);
-  server.on("/save", HTTP_POST, handleSave);
-  server.onNotFound(handleNotFound);
-
+  server.on("/slider1", HTTP_GET, handleSlider1); // Example control route
+  // Note: All other routes are omitted here but would go in web_handlers.cpp
+  
+  server.onNotFound(handleNotFound); 
+  
   server.begin();
-  Serial.println("Main web server started.");
+  // Serial.println("Main web server started.");
 }

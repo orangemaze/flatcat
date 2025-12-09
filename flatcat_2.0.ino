@@ -1,4 +1,4 @@
-// flatcat_2.0.ino
+// flatcat.ino (Main File)
 
 #include "flatcat.h"
 
@@ -8,7 +8,6 @@
 WebServer server(80);
 Servo myServo_1;
 Servo myServo_2;
-
 Preferences preferences;
 DNSServer dnsServer;
 WiFiUDP udp;
@@ -16,26 +15,25 @@ WiFiUDP udp;
 // --- HARDWARE PINS ---
 int elPin_1 = D8;
 int elPin_2 = D6;
-int servoPin_1 = D3;
+int servoPin_1 = D9;
 int servoPin_2 = D7;
 int factoryResetPin = D0;
-int closedStopPin_1 = D1;
-int openStopPin_1 = D2;
+int closedStopPin_1 = D1; // <-- DEFINITION for Closed Sensor
+int openStopPin_1 = D2;   // <-- DEFINITION for Open Sensor
 
 // --- SERVO CONFIG / CONSTANTS ---
-// (Moved to header)
-
 int openAngle = 90;
 int closeAngle = 0;
 
-const int coverReady = 0;
-const int coverClosed = 1;
-const int coverMoving = 2;
-const int coverOpen = 3;
+const int coverReady =
+    4; // Changed from 0 (NotPresent) to 4 (Unknown) to keep controls enabled
+const int coverClosed = 1; // ASCOM standard for Closed
+const int coverMoving = 2; // ASCOM standard for Moving
+const int coverOpen = 3;   // ASCOM standard for Open
 
 const int calibratorReady = 0;
 const int calibratorNotReady = 1;
-const int calibratorOff = 1;
+const int maxBrightness = 64;
 
 // --- STATE VARIABLES ---
 long serverTransactionID = 1;
@@ -46,12 +44,10 @@ int currentDimmerValue_1 = 0;
 int currentDimmerValue_2 = 0;
 bool isDimmerActive = false;
 int calibratorState_1 = calibratorNotReady;
-bool isClosedStopActive_1 = false;
-bool isOpenStopActive_1 = false;
-bool isMovingToClose_1 = false;
-bool isMovingToOpen_1 = false;
-bool isConnected = false;
-unsigned long moveStartTime = 0;
+bool isClosedStopActive_1 = false; // <-- DEFINITION: Initial state
+bool isOpenStopActive_1 = false;   // <-- DEFINITION: Initial state
+bool isMovingToClose_1 = false;    // <-- DEFINITION
+bool isMovingToOpen_1 = false;     // <-- DEFINITION
 
 // --- CONFIG & TIME ---
 DeviceSettings currentSettings;
@@ -70,17 +66,17 @@ const char *ALPACA_DISCOVERY_RESPONSE = "{\"AlpacaPort\": 80}";
 // ================================================================
 void setup() {
   Serial.begin(115200);
-  delay(100);
   Serial.println("tada");
-
   // --- 1. Factory Reset Check ---
   pinMode(factoryResetPin, INPUT_PULLUP);
   delay(50);
   if (digitalRead(factoryResetPin) == LOW) {
+    // ... (Factory reset logic retained)
     Serial.println("Reset button detected! Hold for 3s to erase...");
     delay(3000);
     if (digitalRead(factoryResetPin) == LOW) {
       Serial.println("ERASING ALL SAVED SETTINGS!");
+      // These preferences.begin/end calls are correct for the reset logic
       preferences.begin("flatcat-wifi", false);
       preferences.clear();
       preferences.end();
@@ -95,56 +91,45 @@ void setup() {
     }
   }
 
-  // --- SETUP SERVO (Standard) ---
-  myServo_1.setPeriodHertz(50);
-  myServo_2.setPeriodHertz(50);
-
-  // --- DEBUG STAGE 1: PRE-WIFI ---
-  Serial.println("--- TEST 1: PRE-WIFI ---");
-  myServo_1.attach(servoPin_1, MIN_MICROS, MAX_MICROS);
-  myServo_1.write(90);
-  delay(1000);
-  myServo_1.write(0);
-  delay(1000);
-  myServo_1.detach();
-  Serial.println("Test 1 Complete.");
-
   // --- 2. Initial Data and Boot Message ---
-  delay(1000);
+  delay(2000);
   Serial.println("Flatcat booting up...");
+  // initializeUniqueID(); // Initialize the persistent ASCOM ID
 
-  // --- 3. Initialize Hardware ---
+  // --- 3. Initialize Hardware and Sensors ---
   pinMode(elPin_1, OUTPUT);
   pinMode(elPin_2, OUTPUT);
-  // analogWrite(elPin_1, 0); // Keep disabled for now
-  // analogWrite(elPin_2, 0);
+  analogWrite(elPin_1, 0);
+  analogWrite(elPin_2, 0);
 
-  // Initialize Sensor Pins
+  // PWM and Servo setup
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+  myServo_1.attach(servoPin_1);
+  myServo_2.attach(servoPin_2);
+
+  // Initial servo positions and sensor pin setup
+  myServo_1.write(currentServoAngle_1);
+  myServo_2.write(currentServoAngle_2);
+
+  // Initialize Sensor Pins with Internal Pull-Up (A3213 requirement)
   pinMode(closedStopPin_1, INPUT_PULLUP);
   pinMode(openStopPin_1, INPUT_PULLUP);
 
   // --- 4. Load Credentials and Connect WiFi ---
-  preferences.begin("flatcat-wifi", true);
+  // Read the saved credentials (read-only)
+  preferences.begin("flatcat-wifi", true); // TRUE is correct for reading
   String saved_ssid = preferences.getString("wifi-ssid", "");
   String saved_pass = preferences.getString("wifi-pass", "");
-  preferences.end();
+  preferences.end(); // Must close the read session
 
   if (saved_ssid == "") {
     startApMode();
   } else {
     Serial.println("Found credentials for: " + saved_ssid);
-    Serial.println("Starting WiFi...");
     WiFi.begin(saved_ssid.c_str(), saved_pass.c_str());
-
-    // --- DEBUG STAGE 2: IMMEDIATE POST-WIFI START ---
-    Serial.println("--- TEST 2: POST-WIFI-BEGIN ---");
-    myServo_1.attach(servoPin_1, MIN_MICROS, MAX_MICROS);
-    myServo_1.write(90);
-    delay(1000);
-    myServo_1.write(0);
-    delay(1000);
-    myServo_1.detach();
-    Serial.println("Test 2 Complete.");
 
     unsigned long startTime = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - startTime < 30000)) {
@@ -154,20 +139,11 @@ void setup() {
 
     if (WiFi.status() == WL_CONNECTED) {
       startMainServer();
-
-      // --- DEBUG STAGE 3: POST-SERVER ---
-      Serial.println("--- TEST 3: POST-SERVER ---");
-      myServo_1.attach(servoPin_1, MIN_MICROS, MAX_MICROS);
-      myServo_1.write(90);
-      delay(1000);
-      myServo_1.write(0);
-      delay(1000);
-      myServo_1.detach();
-      Serial.println("Test 3 Complete.");
-
     } else {
-      Serial.println("\nFailed to connect. Switch to AP.");
-      preferences.begin("flatcat-wifi", false);
+      Serial.println(
+          "\nFailed to connect. Wiping credentials and starting AP mode.");
+      // Wiping credentials (must be read/write mode)
+      preferences.begin("flatcat-wifi", false); // FALSE is correct for writing
       preferences.clear();
       preferences.end();
       startApMode();
@@ -179,10 +155,10 @@ void setup() {
 // --- C++ LOOP ---
 // ================================================================
 void loop() {
-  // 1. Process standard web clients
+  // 1. Process standard web clients (CRITICAL for TCP connections)
   server.handleClient();
 
-  // 2. Process background discovery
+  // 2. Process background discovery (Non-blocking UDP)
   handleAlpacaDiscovery();
 
   // If in AP mode, process DNS requests
@@ -190,24 +166,23 @@ void loop() {
     dnsServer.processNextRequest();
   }
 
-  static unsigned long lastHeartbeat = 0;
-  if (millis() - lastHeartbeat > 5000) {
-    lastHeartbeat = millis();
-    // Serial.println("Heartbeat: Alive");
-
-    // Wiggle
-    Serial.println("Heartbeat Wiggle...");
-    myServo_1.attach(servoPin_1, MIN_MICROS, MAX_MICROS);
-    myServo_1.write(90);
-    delay(200);
-    myServo_1.write(0);
-    delay(200);
-    myServo_1.detach();
-  }
-
-  // 3. Update physical cover status
-  updateCoverStatus();
+  // 3. NEW: Check and update the physical cover status
+  updateCoverStatus(); // <-- NEW CALL
   checkAndStopServo();
+  // --- NON-BLOCKING TIME UPDATE ---
+  /*
+  if (millis() - lastTimeUpdate > 1000) {
+    lastTimeUpdate = millis();
 
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo) || timeinfo.tm_year < 100) {
+      currentTimeString = "Syncing...";
+    } else {
+      char timeString[20];
+      strftime(timeString, sizeof(timeString), "%I:%M:%S %p", &timeinfo);
+      currentTimeString = timeString;
+    }
+  }
+  */
   delay(1);
 }
